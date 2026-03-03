@@ -13,16 +13,27 @@ A lightweight auto clicker with a GUI, built in Python. Designed to run locally 
 
 ## Quick Start
 
-```bash
-# Clone the repo
-git clone https://github.com/<your-user>/AutoClicker.git
+### Windows
+
+```cmd
+git clone https://github.com/vinny32295/AutoClicker.git
 cd AutoClicker
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Run
 python auto_clicker.py
+```
+
+### macOS / Linux
+
+```bash
+git clone https://github.com/vinny32295/AutoClicker.git
+cd AutoClicker
+pip install -r requirements.txt
+python auto_clicker.py
+```
+
+On Linux you may also need:
+```bash
+sudo apt install python3-tk scrot
 ```
 
 ## Requirements
@@ -30,11 +41,6 @@ python auto_clicker.py
 - Python 3.10+
 - `pyautogui` — performs the clicks and reads cursor position
 - `pynput` — transitive dependency for input control
-
-On Linux you may also need:
-```bash
-sudo apt install python3-tk scrot
-```
 
 ## Usage
 
