@@ -44,6 +44,9 @@ class Clicker:
         self.variance_ms: int = 0
         self.target: Position | None = None  # None = follow cursor
         self.window_title: str = ""  # empty = click regardless of window
+        self.max_clicks: int = 0  # 0 = unlimited
+        self.click_count: int = 0
+        self.on_finished: callable = None  # called when max_clicks reached
         self._thread: threading.Thread | None = None
 
     def start(
@@ -52,6 +55,7 @@ class Clicker:
         variance_ms: int,
         target: Position | None,
         window_title: str = "",
+        max_clicks: int = 0,
     ):
         if self.running:
             return
@@ -59,6 +63,8 @@ class Clicker:
         self.variance_ms = max(0, variance_ms)
         self.target = target
         self.window_title = window_title
+        self.max_clicks = max(0, max_clicks)
+        self.click_count = 0
         self.running = True
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
@@ -83,6 +89,13 @@ class Clicker:
                     pyautogui.click(self.target.x, self.target.y)
                 else:
                     pyautogui.click()
+
+                self.click_count += 1
+                if self.max_clicks > 0 and self.click_count >= self.max_clicks:
+                    self.running = False
+                    if self.on_finished:
+                        self.on_finished()
+                    break
 
             delay_ms = self.interval_ms
             if self.variance_ms > 0:
@@ -213,6 +226,22 @@ class App(tk.Tk):
             foreground="gray",
         ).grid(row=2, column=0, columnspan=2, **pad)
 
+        # --- Click limit ---
+        ttk.Label(interval_frame, text="Click limit:").grid(
+            row=3, column=0, **pad
+        )
+        self.limit_var = tk.IntVar(value=0)
+        self.limit_entry = ttk.Entry(
+            interval_frame, textvariable=self.limit_var, width=10
+        )
+        self.limit_entry.grid(row=3, column=1, **pad)
+
+        ttk.Label(
+            interval_frame,
+            text="0 = unlimited",
+            foreground="gray",
+        ).grid(row=4, column=0, columnspan=2, **pad)
+
         # --- Controls ---
         ctrl_frame = ttk.Frame(self)
         ctrl_frame.grid(row=4, column=0, sticky="ew", **pad)
@@ -247,21 +276,45 @@ class App(tk.Tk):
         try:
             interval = self.interval_var.get()
             variance = self.variance_var.get()
+            limit = self.limit_var.get()
         except tk.TclError:
             return  # invalid input, ignore
 
         target = self.locked_position  # None means "follow cursor"
         win = self.window_var.get()
         window_title = "" if win == "(Any window)" else win
-        self.clicker.start(interval, variance, target, window_title)
+
+        self.clicker.on_finished = lambda: self.after(0, self._on_clicker_finished)
+        self.clicker.start(interval, variance, target, window_title, limit)
 
         self.toggle_btn.config(text="Stop  (F6)")
-        self.status_label.config(text="Running", foreground="green")
+        if limit > 0:
+            self.status_label.config(text=f"Running (0/{limit})", foreground="green")
+            self._poll_click_count()
+        else:
+            self.status_label.config(text="Running", foreground="green")
 
     def _stop(self):
         self.clicker.stop()
         self.toggle_btn.config(text="Start  (F6)")
         self.status_label.config(text="Stopped", foreground="red")
+
+    def _on_clicker_finished(self):
+        """Called from the clicker thread (via after) when max_clicks is reached."""
+        count = self.clicker.click_count
+        self.toggle_btn.config(text="Start  (F6)")
+        self.status_label.config(
+            text=f"Done ({count} clicks)", foreground="orange"
+        )
+
+    def _poll_click_count(self):
+        """Update the status label with the current click count while running."""
+        if not self.clicker.running:
+            return
+        count = self.clicker.click_count
+        limit = self.clicker.max_clicks
+        self.status_label.config(text=f"Running ({count}/{limit})")
+        self.after(self.POLL_MS, self._poll_click_count)
 
     def _capture_position(self):
         """Snapshot the current cursor position into the X/Y fields and lock it."""
