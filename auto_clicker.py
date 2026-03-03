@@ -9,6 +9,7 @@ Features:
   - Lock-in a target position or follow the cursor
   - Global hotkey to start/stop (F6)
   - Global hotkey to capture cursor position (F7)
+  - Window filter so clicks only fire when a chosen window is active
 """
 
 import random
@@ -18,6 +19,7 @@ import tkinter as tk
 from tkinter import ttk
 
 import pyautogui
+import pygetwindow as gw
 
 # Safety: disable pyautogui's built-in pause so we control timing ourselves.
 pyautogui.PAUSE = 0
@@ -41,14 +43,22 @@ class Clicker:
         self.interval_ms: int = 100
         self.variance_ms: int = 0
         self.target: Position | None = None  # None = follow cursor
+        self.window_title: str = ""  # empty = click regardless of window
         self._thread: threading.Thread | None = None
 
-    def start(self, interval_ms: int, variance_ms: int, target: Position | None):
+    def start(
+        self,
+        interval_ms: int,
+        variance_ms: int,
+        target: Position | None,
+        window_title: str = "",
+    ):
         if self.running:
             return
         self.interval_ms = max(10, interval_ms)
         self.variance_ms = max(0, variance_ms)
         self.target = target
+        self.window_title = window_title
         self.running = True
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
@@ -56,12 +66,23 @@ class Clicker:
     def stop(self):
         self.running = False
 
+    def _is_target_window_active(self) -> bool:
+        """Return True if we should click (no filter, or the right window is focused)."""
+        if not self.window_title:
+            return True
+        try:
+            active = gw.getActiveWindowTitle() or ""
+            return self.window_title in active
+        except Exception:
+            return False
+
     def _loop(self):
         while self.running:
-            if self.target is not None:
-                pyautogui.click(self.target.x, self.target.y)
-            else:
-                pyautogui.click()
+            if self._is_target_window_active():
+                if self.target is not None:
+                    pyautogui.click(self.target.x, self.target.y)
+                else:
+                    pyautogui.click()
 
             delay_ms = self.interval_ms
             if self.variance_ms > 0:
@@ -141,9 +162,31 @@ class App(tk.Tk):
         )
         self.target_status.grid(row=2, column=0, columnspan=5, **pad)
 
+        # --- Window filter ---
+        win_frame = ttk.LabelFrame(self, text="Window Filter")
+        win_frame.grid(row=2, column=0, sticky="ew", **pad)
+
+        self.window_var = tk.StringVar(value="(Any window)")
+        self.window_combo = ttk.Combobox(
+            win_frame, textvariable=self.window_var, state="readonly", width=32
+        )
+        self.window_combo.grid(row=0, column=0, **pad)
+        self._refresh_windows()
+
+        self.refresh_btn = ttk.Button(
+            win_frame, text="Refresh", command=self._refresh_windows
+        )
+        self.refresh_btn.grid(row=0, column=1, **pad)
+
+        ttk.Label(
+            win_frame,
+            text="Clicks only fire when this window is active",
+            foreground="gray",
+        ).grid(row=1, column=0, columnspan=2, **pad)
+
         # --- Interval ---
         interval_frame = ttk.LabelFrame(self, text="Click Interval")
-        interval_frame.grid(row=2, column=0, sticky="ew", **pad)
+        interval_frame.grid(row=3, column=0, sticky="ew", **pad)
 
         ttk.Label(interval_frame, text="Interval (ms):").grid(
             row=0, column=0, **pad
@@ -172,7 +215,7 @@ class App(tk.Tk):
 
         # --- Controls ---
         ctrl_frame = ttk.Frame(self)
-        ctrl_frame.grid(row=3, column=0, sticky="ew", **pad)
+        ctrl_frame.grid(row=4, column=0, sticky="ew", **pad)
 
         self.toggle_btn = ttk.Button(
             ctrl_frame, text="Start  (F6)", command=self._toggle
@@ -189,6 +232,17 @@ class App(tk.Tk):
         else:
             self._start()
 
+    def _refresh_windows(self):
+        """Populate the window dropdown with currently open windows."""
+        any_option = "(Any window)"
+        titles = sorted(
+            {t for t in gw.getAllTitles() if t.strip()},
+            key=str.casefold,
+        )
+        self.window_combo["values"] = [any_option] + titles
+        if self.window_var.get() not in self.window_combo["values"]:
+            self.window_var.set(any_option)
+
     def _start(self):
         try:
             interval = self.interval_var.get()
@@ -197,7 +251,9 @@ class App(tk.Tk):
             return  # invalid input, ignore
 
         target = self.locked_position  # None means "follow cursor"
-        self.clicker.start(interval, variance, target)
+        win = self.window_var.get()
+        window_title = "" if win == "(Any window)" else win
+        self.clicker.start(interval, variance, target, window_title)
 
         self.toggle_btn.config(text="Stop  (F6)")
         self.status_label.config(text="Running", foreground="green")
