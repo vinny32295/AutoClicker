@@ -8,6 +8,7 @@ Features:
   - Variance setting so clicks aren't perfectly uniform
   - Lock-in a target position or follow the cursor
   - Global hotkey to start/stop (F6)
+  - Global hotkey to capture cursor position (F7)
 """
 
 import random
@@ -87,8 +88,9 @@ class App(tk.Tk):
         self._build_ui()
         self._poll_cursor()
 
-        # Global hotkey: F6 to toggle start/stop
+        # Global hotkey: F6 to toggle start/stop, F7 to capture cursor position
         self.bind_all("<F6>", lambda _e: self._toggle())
+        self.bind_all("<F7>", lambda _e: self._capture_position())
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self):
@@ -99,16 +101,49 @@ class App(tk.Tk):
         pos_frame.grid(row=0, column=0, sticky="ew", **pad)
 
         self.pos_label = ttk.Label(pos_frame, text="X: —  Y: —", width=28)
-        self.pos_label.grid(row=0, column=0, **pad)
+        self.pos_label.grid(row=0, column=0, columnspan=3, **pad)
 
-        self.lock_btn = ttk.Button(
-            pos_frame, text="Lock Position", command=self._toggle_lock
+        # --- Target position entry ---
+        target_frame = ttk.LabelFrame(self, text="Target Position")
+        target_frame.grid(row=1, column=0, sticky="ew", **pad)
+
+        ttk.Label(target_frame, text="X:").grid(row=0, column=0, **pad)
+        self.target_x_var = tk.StringVar()
+        self.target_x_entry = ttk.Entry(
+            target_frame, textvariable=self.target_x_var, width=7
         )
-        self.lock_btn.grid(row=0, column=1, **pad)
+        self.target_x_entry.grid(row=0, column=1, **pad)
+
+        ttk.Label(target_frame, text="Y:").grid(row=0, column=2, **pad)
+        self.target_y_var = tk.StringVar()
+        self.target_y_entry = ttk.Entry(
+            target_frame, textvariable=self.target_y_var, width=7
+        )
+        self.target_y_entry.grid(row=0, column=3, **pad)
+
+        self.set_btn = ttk.Button(
+            target_frame, text="Set", command=self._set_target
+        )
+        self.set_btn.grid(row=0, column=4, **pad)
+
+        self.capture_btn = ttk.Button(
+            target_frame, text="Capture (F7)", command=self._capture_position
+        )
+        self.capture_btn.grid(row=1, column=0, columnspan=3, **pad)
+
+        self.clear_btn = ttk.Button(
+            target_frame, text="Clear", command=self._clear_target
+        )
+        self.clear_btn.grid(row=1, column=3, columnspan=2, **pad)
+
+        self.target_status = ttk.Label(
+            target_frame, text="No target — clicks follow cursor", foreground="gray"
+        )
+        self.target_status.grid(row=2, column=0, columnspan=5, **pad)
 
         # --- Interval ---
         interval_frame = ttk.LabelFrame(self, text="Click Interval")
-        interval_frame.grid(row=1, column=0, sticky="ew", **pad)
+        interval_frame.grid(row=2, column=0, sticky="ew", **pad)
 
         ttk.Label(interval_frame, text="Interval (ms):").grid(
             row=0, column=0, **pad
@@ -137,7 +172,7 @@ class App(tk.Tk):
 
         # --- Controls ---
         ctrl_frame = ttk.Frame(self)
-        ctrl_frame.grid(row=2, column=0, sticky="ew", **pad)
+        ctrl_frame.grid(row=3, column=0, sticky="ew", **pad)
 
         self.toggle_btn = ttk.Button(
             ctrl_frame, text="Start  (F6)", command=self._toggle
@@ -172,14 +207,36 @@ class App(tk.Tk):
         self.toggle_btn.config(text="Start  (F6)")
         self.status_label.config(text="Stopped", foreground="red")
 
-    def _toggle_lock(self):
-        if self.locked_position is not None:
-            self.locked_position = None
-            self.lock_btn.config(text="Lock Position")
-        else:
-            x, y = pyautogui.position()
-            self.locked_position = Position(x, y)
-            self.lock_btn.config(text=f"Unlock ({x}, {y})")
+    def _capture_position(self):
+        """Snapshot the current cursor position into the X/Y fields and lock it."""
+        x, y = pyautogui.position()
+        self.target_x_var.set(str(x))
+        self.target_y_var.set(str(y))
+        self._apply_target(x, y)
+
+    def _set_target(self):
+        """Lock the target to whatever is typed in the X/Y fields."""
+        try:
+            x = int(self.target_x_var.get())
+            y = int(self.target_y_var.get())
+        except ValueError:
+            return
+        self._apply_target(x, y)
+
+    def _clear_target(self):
+        """Remove the locked target so clicks follow the cursor."""
+        self.locked_position = None
+        self.target_x_var.set("")
+        self.target_y_var.set("")
+        self.target_status.config(
+            text="No target — clicks follow cursor", foreground="gray"
+        )
+
+    def _apply_target(self, x: int, y: int):
+        self.locked_position = Position(x, y)
+        self.target_status.config(
+            text=f"Target locked: ({x}, {y})", foreground="blue"
+        )
 
     # -------------------------------------------------------- cursor poll
     def _poll_cursor(self):
